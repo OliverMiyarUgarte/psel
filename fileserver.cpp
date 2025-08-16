@@ -7,6 +7,7 @@
 #include <string>
 #include <fstream>
 #include <filesystem>
+#include <algorithm>
 
 namespace fs = std::filesystem;
 
@@ -38,6 +39,53 @@ string get_content_type(const string& path) {
     return "text/plain";
 }
 
+bool handle_file_upload(const string& body, const string& boundary, const string& web_root) {
+    string boundary_marker = "--" + boundary;
+    string end_boundary_marker = boundary_marker + "--";
+
+    size_t part_start = body.find(boundary_marker);
+    if (part_start == string::npos) return false;
+    part_start += boundary_marker.size();
+
+    size_t header_end = body.find("\r\n\r\n", part_start);
+    if (header_end == string::npos) return false;
+
+    string part_header = body.substr(part_start, header_end - part_start);
+    string filename = "arquivoupload.html";
+    size_t fn_pos = part_header.find("filename=\"");
+    if (fn_pos != string::npos) {
+        fn_pos += 10;
+        size_t fn_end = part_header.find("\"", fn_pos);
+        if (fn_end != string::npos) {
+            filename = part_header.substr(fn_pos, fn_end - fn_pos);
+            size_t slash = filename.find_last_of("/\\");
+            if (slash != string::npos)
+                filename = filename.substr(slash + 1);
+        }
+    }
+
+    size_t data_start = header_end + 4;
+    size_t data_end = body.find(boundary_marker, data_start);
+    if (data_end == string::npos) {
+        data_end = body.find(end_boundary_marker, data_start);
+        if (data_end == string::npos) return false;
+    }
+    if (data_end >= 2 && body.substr(data_end - 2, 2) == "\r\n") {
+        data_end -= 2;
+    }
+
+    string full_path = web_root + filename;
+    ofstream output_file(full_path, ios::binary);
+    if (!output_file) {
+        cerr << RED << "Nao deu para criar: " << filename << RESET << endl;
+        return false;
+    }
+    output_file.write(body.data() + data_start, data_end - data_start);
+    output_file.close();
+    cout << GREEN << "Salvou: " << filename << RESET << endl;
+    return true;
+}
+
 void handle_request(int client_sock, const string& web_root) {
     char buffer[4096] = {0};
     int bytes_received = recv(client_sock, buffer, sizeof(buffer) - 1, 0);
@@ -46,10 +94,68 @@ void handle_request(int client_sock, const string& web_root) {
         return;
     }
 
-    string request(buffer);
+    string request(buffer, bytes_received);
     istringstream iss(request);
     string method, path, version;
     iss >> method >> path >> version;
+
+    if (method == "POST" && path == "/upload") {
+        cout << GREEN << "✧ Iniciando o upload de arquivo ✧\n" << RESET;
+
+        size_t content_length = 0;
+        size_t cl_pos = request.find("Content-Length:");
+        if (cl_pos != string::npos) {
+            cl_pos += 15;
+            while (cl_pos < request.size() && isspace(request[cl_pos])) ++cl_pos;
+            size_t cl_end = request.find("\r\n", cl_pos);
+            string cl_val = request.substr(cl_pos, cl_end - cl_pos);
+            content_length = stoi(cl_val);
+        }
+
+        string boundary;
+        size_t boundary_pos = request.find("boundary=");
+        if (boundary_pos != string::npos) {
+            size_t b_start = boundary_pos + 9;
+            size_t b_end = request.find("\r\n", b_start);
+            if (b_end == string::npos) b_end = request.find(';', b_start);
+            boundary = request.substr(b_start, b_end - b_start);
+        } else {
+            cerr << RED << "✧ Sem boundary! ✧\n" << RESET;
+            string response = "HTTP/1.1 400 \r\nContent-Type: text/html\r\n\r\n"
+                              "<html><body><h1>400 </h1><p>Boundary nao especifica.</p></body></html>";
+            send(client_sock, response.c_str(), response.size(), 0);
+            return;
+        }
+
+        size_t header_end = request.find("\r\n\r\n");
+        string body;
+        if (header_end != string::npos) {
+            body = request.substr(header_end + 4);
+        } else {
+            cerr << RED << "✧ Malformataado! ✧\n" << RESET;
+            return;
+        }
+
+        while (body.size() < content_length) {
+            char temp_buf[4096];
+            int n = recv(client_sock, temp_buf, min(sizeof(temp_buf), content_length - body.size()), 0);
+            if (n <= 0) break;
+            body.append(temp_buf, n);
+        }
+
+        if (!handle_file_upload(body, boundary, web_root)) {
+            cerr << RED << "✧ Falha no upload! (╥﹏╥) ✧\n" << RESET;
+            string response = "HTTP/1.1 500 Error\r\nContent-Type: text/html\r\n\r\n"
+                              "<html><body><h1>Erro no upload!</h1></body></html>";
+            send(client_sock, response.c_str(), response.size(), 0);
+            return;
+        }
+
+        string response = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n"
+                          "<html><body><h1>Arquivo enviado com sucesso!</h1></body></html>";
+        send(client_sock, response.c_str(), response.size(), 0);
+        return;
+    }
 
     if (path == "/") path = "/index.html";
 
@@ -63,8 +169,8 @@ void handle_request(int client_sock, const string& web_root) {
 
     ifstream file(full_path, ios::binary);
     if (!file) {
-        string response = "HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\n\r\n"
-                          "<html><body><h1>404 Not Found</h1><p>The requested file could not be found.</p></body></html>";
+        string response = "HTTP/1.1 404 Nao achado\r\nContent-Type: text/html\r\n\r\n"
+                          "<html><body><h1>404 Nao achado</h1><p>Arquivo nao foi encontrado.</p></body></html>";
         send(client_sock, response.c_str(), response.size(), 0);
         return;
     }
