@@ -64,12 +64,6 @@ void banner() {
 int main() {
     banner();
 
-    // Site para proxy
-    cout << BLUE << "Para qual site tu quer o reverse proxy OwO? (ex., " << YELLOW << "example.com" << BLUE << "): \n" << RESET;
-    string SiteProxy;
-    getline(cin, SiteProxy);
-    cout << GREEN << "Vou fazer o proxy para: " << YELLOW << SiteProxy << GREEN << "(＾• ω •＾)\n\n" << RESET;
-
     // Socket
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0) {
@@ -91,7 +85,6 @@ int main() {
 
     listen(sock, 5);
     cout << CYAN << "Escutando no " << YELLOW << "http://localhost:3000" << "\n" << RESET;
-    cout << MAGENTA << "Todos os pedidos encaminhados para: " << YELLOW << SiteProxy << MAGENTA << "\n" << RESET;
     cout << RED << "Ctrl+C para me matar (｡•́︿•̀｡)\n\n" << RESET;
 
     while (true) {
@@ -127,19 +120,10 @@ int main() {
             continue;
         }
 
-        // Pedido
-        hostent* HostPedido = gethostbyname(SiteProxy.c_str());
-        if (!HostPedido) {
-            cerr << RED << "Nao achei " << YELLOW << SiteProxy << RED << "! ;3\n" << RESET;
-            close(SockCliente);
-            close(SockBack);
-            continue;
-        }
-
         sockaddr_in BackAddr;
         BackAddr.sin_family = AF_INET;
-        BackAddr.sin_port = htons(80);
-        memcpy(&BackAddr.sin_addr, HostPedido->h_addr_list[0], HostPedido->h_length);
+        BackAddr.sin_port = htons(8080);
+        BackAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
         if (connect(SockBack, (sockaddr*)&BackAddr, sizeof(BackAddr)) < 0) {
             cerr << RED << "Falhou ;3\n" << RESET;
@@ -152,10 +136,10 @@ int main() {
         size_t HostPos = PedPuro.find("Host: ");
         if (HostPos != string::npos) {
             size_t HostEnd = PedPuro.find("\r\n", HostPos);
-            PedPuro.replace(HostPos, HostEnd - HostPos, "Host: " + SiteProxy);
+            PedPuro.replace(HostPos, HostEnd - HostPos, "Host: localhost");
         }
 
-        cout << GREEN << "Proxy para " << YELLOW << SiteProxy << GREEN << "!\n" << RESET;
+        cout << GREEN << "Proxy para " << YELLOW << "Local Host" << GREEN << "!\n" << RESET;
         send(SockBack, PedPuro.c_str(), PedPuro.size(), 0);
 
         // Devolver Resposta
