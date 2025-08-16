@@ -11,6 +11,16 @@ Para a parte de arquivos, consultei:
 - https://www.geeksforgeeks.org/cpp/file-system-library-in-cpp-17/ (Sistema de arquivos em Cpp)
 - https://medium.com/@ryan_forrester_/c-file-handling-with-fstream-a-complete-guide-a4ebcc294bd0 (Gerenciar arquivos em Cpp)
 
+Regex:
+
+- https://www.regular-expressions.info/
+
 Cores no Terminal:
 
 -https://stackoverflow.com/questions/4842424/list-of-ansi-color-escape-sequences
+
+Para compilar o servidor e necessario que o g++ seja da versao 20 ou superior
+
+'''
+g++  fileserver.cpp -o fileserver -std=c++20
+'''
